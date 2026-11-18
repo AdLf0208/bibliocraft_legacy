@@ -1,0 +1,21 @@
+[package]
+# Port of Bibliocraft Legacy 26.1.2-1.7.1 (MinecraftschurliMods/Bibliocraft-Legacy,
+# MIT). Slice 1 is content-only: the four furniture blocks are declared in
+# `data/` and `assets/` at the package root. `src/runtime.rs` is the test-only
+# pure furniture model (the campaign's rule), byte-identical to the retired
+# `.hnmod` bundle's copy; the models are the upstream mod's own MIT assets.
+# Local-only until publishing is approved (ARCHITECTURE.md §8).
+#
+# Cargo's name and version are not the mod's identity: horizon-mod.toml is.
+name = "bibliocraft"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+description = "Bibliocraft Legacy's plain furniture slice for Horizon: bookcase, shelf, seat and desk bell"
+publish = false
+
+[dependencies]
+# The pinned SDK's API crate, fetched into .horizon/sdk/ by any `cargo horizon-mod` command (the
+# launcher builds against its own copy of the same build). Any other registry dependency must be
+# pinned with `horizon-launcher native-lock .` before building.
+horizon-mod-api = { path = ".horizon/sdk/api/crates/horizon-mod-api" }

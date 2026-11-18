@@ -1,0 +1,41 @@
+# Bibliocraft Legacy for Horizon — one flat SDK package (mod API 0.2).
+#
+# Slice 1 is four plain, decorative furniture blocks — the oak bookcase, the oak
+# shelf, the black oak seat and the desk bell — with their states, shapes,
+# items, drops, recipes, tags and one creative tab. The models are the upstream
+# MIT assets; the planks/wool/iron/stone textures they reference are vanilla's,
+# so this slice ships no textures of its own. There is no block entity, no GUI
+# and no hook: the bookcase/shelf inventories, the seat entity, the desk bell's
+# sound and the table are deferred (notes.md).
+#
+# Licence: MIT, read from the upstream repository's `LICENSE` (rank 0,
+# permissive). `LICENSE` and `LICENSE-NOTICE.md` travel inside the package.
+# Local-only until the maintainer approves publishing (ARCHITECTURE.md §8).
+id = "bibliocraft"
+name = "Bibliocraft Legacy"
+# The port's own version, not the original mod's 26.1.2-1.7.1: this is the first
+# publication of the SDK package (there was no `.hnmod` submission to supersede).
+version = "0.2.0"
+description = """A port of Bibliocraft Legacy for Horizon: plain decorative furniture. Slice 1 carries the
+oak bookcase, the oak shelf, the black oak seat and the desk bell with their block states (facing and
+waterlogged, the seat's occupied), their shapes transcribed from upstream, their items, self-drop
+loot, the upstream shaped recipes, the block and item tags and one Bibliocraft creative tab. The
+bookcase and shelf inventories, the seat entity, the desk bell's ring and redstone answers, the other
+11 wood types and 15 seat colours, and the table are not ported yet."""
+authors = ["Minecraftschurli", "IchHabeHunger54", "AdLf0208"]
+# The content API line: exact and checked. This package carries content beside
+# its (test-only) model, so the capability is a real claim; it is also the one
+# value the manifest schema has.
+api = "0.2"
+# The installation side, not the hook's: an integrated server belongs to the
+# client installation, so a LAN host or a single-player world needs both.
+side = "both"
+# The one shared value every manifest carries ("May add blocks, items, mob
+# effects and entity types"): this mod declares four blocks, their items, the
+# recipes, loot, tags and the creative tab.
+capabilities = ["registries"]
+
+[native]
+game = "26.3"
+horizon = "0b14f8acfd97fa2c750e42795249dcc981178ca4"
+mixins = "e59da9094f0c2fdda6c627fe9eff22dec6a906f0"

@@ -29,12 +29,26 @@
 #      control leaves the result empty;
 #   5. the block tags (`bibliocraft:bookcases`/`shelves`/`seats`,
 #      `minecraft:mineable/axe`, `minecraft:mineable/pickaxe`) contain them;
-#   6. the creative tab lists all four and every item is give-able;
-#   7. unknown ids are refused by give and setblock.
+#   6. every item is give-able, and the package's creative tab declares all five;
+#   7. slice 2, the storage furniture:
+#      a. the bookcase opens a 16-slot menu (`ctl screen` lists slots 300-315);
+#      b. a plain book goes into slot 5 and answers no comparator, a redstone
+#         book in slot 3 answers 3 through a comparator onto a wire, and the
+#         same book moved to slot 1 answers 0 (the book's own scale);
+#      c. the bookcase hands back a stone put into a slot, while the shelf
+#         (4 slots) keeps it;
+#      d. a hopper above fills the bookcase and a hopper below empties it into
+#         a chest;
+#      e. a broken bookcase spills its books as a container's do (the engine's
+#         `Containers.dropContents`), drops itself, and the item placed again
+#         is empty;
+#   8. unknown ids are refused by give and setblock.
 #
-# COUNTERFACTUAL=1 repeats the vanilla-white-glazed-terracotta differential and also
-# proves the port's `waterlogged` state is not a vanilla state (setblock with
-# `waterlogged=true` on white_glazed_terracotta fails).
+# COUNTERFACTUAL=1 repeats the vanilla-white-glazed-terracotta differential, proves
+# the port's `waterlogged` state is not a vanilla state (setblock with
+# `waterlogged=true` on white_glazed_terracotta fails), and runs the storage
+# phase against a vanilla barrel instead of the bookcase: 27 slots, not 16, and
+# the barrel takes the stone a bookcase refuses.
 # SELFTEST=1 ends the default leg with an assertion that the vanilla control cell
 # is a Bibliocraft block, which is impossible: it MUST fail (exit 1), proving the
 # drop/differential assertions are not vacuous. It replaces the 0.1.0 NEGATIVE=1
@@ -93,6 +107,13 @@ assert_prop() {
     [ "$got" = "$want" ] || fail "$state: $key is '$got', expected '$want'"
 }
 end() { ctl command "execute in minecraft:the_end run $1"; }
+# The open menu's own container slots (300+), and the item in one of them.
+container_slots() { ctl screen | jq '[.slots[] | select(.slot >= 300)] | length'; }
+container_item() { ctl screen | jq -r --arg s "$1" '[.slots[] | select(.slot == ($s | tonumber))][0].item // ""'; }
+# The first inventory slot (hotbar + main, below 100) holding `item`.
+slot_with() { ctl screen | jq -r --arg i "$1" '[.slots[] | select(.item == $i and .slot < 100)][0].slot // ""'; }
+# A redstone wire's strength (`power` in its block state).
+wire_power() { ctl block "$1" "$2" "$3" | jq -r '.state // ""' | sed -n 's/.*power=\([0-9][0-9]*\).*/\1/p'; }
 
 cleanup() {
     local status=$?
@@ -121,8 +142,13 @@ if [ -n "$CONTROL_GAME" ]; then
     if ctl give bibliocraft:oak_bookcase 1 >/dev/null 2>&1; then
         fail "the unmodded game accepted bibliocraft:oak_bookcase"
     fi
-    ctl setblock 40 80 20 bibliocraft:oak_bookcase >/dev/null 2>&1 || true
-    [ "$(block_state 40 80 20)" = "minecraft:air" ] || fail "the unmodded game placed a Bibliocraft block"
+    # A cell far above the control world's terrain, which is air there. (The
+    # first version probed 40 80 20 and read a hillside, failing on the world
+    # rather than on the package — y=200 is air in every Overworld.)
+    [ "$(block_state 40 200 20)" = "minecraft:air" ] \
+        || fail "the control cell 40 200 20 is not air before the probe"
+    ctl setblock 40 200 20 bibliocraft:oak_bookcase >/dev/null 2>&1 || true
+    [ "$(block_state 40 200 20)" = "minecraft:air" ] || fail "the unmodded game placed a Bibliocraft block"
     echo "control: give and setblock refuse every Bibliocraft id"
     ctl quit >/dev/null 2>&1 || true
     sleep 1
@@ -326,30 +352,285 @@ done
 echo "tags: bookcases/shelves/seats + mineable/axe + mineable/pickaxe"
 
 # ---------------------------------------------------------------- item side
-say "all four items are give-able and the creative tab lists them"
+say "all five items are give-able and the creative tab lists them"
 ctl command "clear @s" >/dev/null
-for item in oak_bookcase oak_shelf black_oak_seat desk_bell; do
+for item in oak_bookcase oak_shelf black_oak_seat desk_bell redstone_book; do
     ctl give "bibliocraft:$item" 1 >/dev/null || fail "give bibliocraft:$item failed"
 done
 ctl wait 5
-for item in oak_bookcase oak_shelf black_oak_seat desk_bell; do
+for item in oak_bookcase oak_shelf black_oak_seat desk_bell redstone_book; do
     [ "$(count_item "bibliocraft:$item")" -ge 1 ] || fail "bibliocraft:$item is missing"
 done
-# The creative tab is a content declaration; the game materialises it as the
-# creative inventory of the open world. A launcher-installed package and a dev
-# root both land in the game dir's cache; a package that never registered its
-# tab has no entry either way.
-CREATIVE=
-for candidate in "$SCRATCH/game/.horizon-cache/mod-content/creative-inventory.json" \
-                 "$(dirname "$GAME")/.horizon-cache/mod-content/creative-inventory.json"; do
-    [ -f "$candidate" ] && CREATIVE=$candidate && break
+# The creative tab is a content declaration inside the delivered package: a
+# native package's merged content is baked into the package at build time, so
+# there is no `--dev-mod` cache for it (the 0.1.0 assertion read one). The tab
+# is checked where it is declared, and the items themselves are given above in
+# the running game.
+TAB=$(unzip -p "$PORT/bibliocraft.hmod" data/bibliocraft/horizon/creative_tab/bibliocraft.json) \
+    || fail "the delivered package has no creative_tab declaration"
+echo "creative tab (package data): $(echo "$TAB" | jq -c .)"
+for item in oak_bookcase oak_shelf black_oak_seat desk_bell redstone_book; do
+    echo "$TAB" | grep -q "\"bibliocraft:$item\"" || fail "creative tab misses bibliocraft:$item"
 done
-[ -n "$CREATIVE" ] || fail "no creative-inventory.json in the game dir's .horizon-cache/mod-content"
-echo "creative inventory: $CREATIVE"
-for item in oak_bookcase oak_shelf black_oak_seat desk_bell; do
-    grep -q "bibliocraft:$item" "$CREATIVE" || fail "creative tab misses bibliocraft:$item"
-done
-echo "4/4 items give-able; creative tab lists 4"
+echo "5/5 items give-able in game; the package's creative tab declares 5"
+
+
+# ------------------------------------------------- storage (slice 2)
+# The bookcase is a 16-slot, book-only block entity with a content menu, a
+# comparator answer and contents that survive a break; the shelf is a plain
+# 4-slot one. Everything below is read back through the game (the menu, the
+# comparator's wire, the hopper's chest), never through the port's own code.
+open_menu() { # x y z face
+    ctl close >/dev/null 2>&1 || true
+    ctl wait 3
+    ctl interact "$1" "$2" "$3" "$4" >/dev/null || fail "the click on $1,$2,$3 failed"
+    ctl wait-for screen container --timeout 10 >/dev/null 2>&1 \
+        || fail "no container menu opened at $1,$2,$3 (screen=$(ctl state | jq -r '.screen // ""'))"
+    ctl wait 3
+}
+# Put `item` into container slot `to`: pick the stack up from the inventory,
+# right-click one into the slot, put the rest back where it came from.
+put_one() { # item to
+    local from
+    from=$(slot_with "$1")
+    [ -n "$from" ] || fail "no $1 in the inventory to put in slot $2"
+    ctl click-slot "$from" >/dev/null || fail "cannot pick up $1"
+    ctl wait 2
+    ctl click-slot "$2" right >/dev/null || fail "cannot put $1 in slot $2"
+    ctl wait 2
+    ctl click-slot "$from" >/dev/null || fail "cannot put the rest of $1 back"
+    ctl wait 3
+}
+# Take container slot `from` and put it in the first free inventory slot.
+take_one() { # from
+    local free
+    free=$(ctl screen | jq -r '[.slots[] | select(.slot >= 9 and .slot < 36) | select(.item == null)][0].slot // ""')
+    [ -n "$free" ] || fail "no free inventory slot to put the taken stack in"
+    ctl click-slot "$1" >/dev/null || fail "cannot take from slot $1"
+    ctl wait 2
+    ctl click-slot "$free" >/dev/null || fail "cannot put the taken stack in $free"
+    ctl wait 3
+}
+
+AX=8
+AZ=16
+ctl setblock $AX 80 $AZ bibliocraft:oak_bookcase >/dev/null || fail "cannot set the bookcase"
+ctl wait 5
+ctl command "tp @s $AX.5 80 $((AZ + 2)).5 180 20" >/dev/null
+ctl wait 6
+
+if [ "$COUNTERFACTUAL" = 1 ]; then
+    say "counterfactual: a vanilla barrel opens a 27-slot menu and takes the stone a bookcase refuses"
+    ctl setblock $AX 80 $AZ minecraft:barrel >/dev/null || fail "cannot set the barrel"
+    ctl wait 5
+    open_menu $AX 80 $AZ south
+    slots=$(container_slots)
+    echo "vanilla barrel menu slots: $slots"
+    [ "$slots" = 27 ] || fail "the vanilla barrel menu shows $slots slots, expected 27"
+    ctl command "clear @s" >/dev/null
+    ctl give minecraft:stone 1 >/dev/null
+    ctl wait 4
+    put_one minecraft:stone 300
+    [ "$(container_item 300)" = "minecraft:stone" ] \
+        || fail "the vanilla barrel did not keep the stone the bookcase refuses"
+    ctl close >/dev/null 2>&1 || true
+    ctl wait 3
+    echo "COUNTERFACTUAL PASS: a barrel is a 27-slot chest that takes stone; the bookcase's 16 slots and its book filter are its own code"
+else
+    say "the bookcase opens a 16-slot menu"
+    open_menu $AX 80 $AZ south
+    slots=$(container_slots)
+    echo "bookcase menu slots: $slots"
+    [ "$slots" = 16 ] || fail "the bookcase menu shows $slots slots, expected 16 (upstream BookcaseBlockEntity: SLOTS = 16)"
+
+    say "a book goes into the bookcase through its menu"
+    ctl close >/dev/null 2>&1 || true
+    ctl wait 3
+    ctl command "clear @s" >/dev/null
+    ctl give minecraft:book 3 >/dev/null || fail "cannot give books"
+    ctl give bibliocraft:redstone_book 1 >/dev/null || fail "cannot give a redstone book"
+    ctl wait 4
+    open_menu $AX 80 $AZ south
+    put_one minecraft:book 305
+    [ "$(container_item 305)" = "minecraft:book" ] || fail "slot 305 holds '$(container_item 305)', expected a book"
+    echo "slot 5 (300+5) holds a plain book"
+
+    # ------------------------------------------------------------ comparator
+    say "a plain book answers no comparator; a redstone book answers its slot index"
+    ctl close >/dev/null 2>&1 || true
+    ctl wait 3
+    # The comparator at X+1 faces west, so it reads the bookcase at X and drives
+    # the wire at X+2 (`diode_input_signal` reads `pos + facing`).
+    ctl setblock $((AX + 1)) 80 $AZ "minecraft:comparator[facing=west]" >/dev/null \
+        || fail "cannot place the comparator"
+    ctl setblock $((AX + 2)) 80 $AZ minecraft:redstone_wire >/dev/null || fail "cannot place the wire"
+    ctl wait 20
+    power=$(wire_power $((AX + 2)) 80 $AZ)
+    echo "wire power with a plain book in slot 5: ${power:-none}"
+    [ "$power" = 0 ] || fail "a plain book answered ${power}, expected 0 (only a redstone book does)"
+
+    open_menu $AX 80 $AZ south
+    put_one bibliocraft:redstone_book 303
+    [ "$(container_item 303)" = "bibliocraft:redstone_book" ] \
+        || fail "slot 303 holds '$(container_item 303)', expected the redstone book"
+    ctl close >/dev/null 2>&1 || true
+    ctl wait 20
+    power=$(wire_power $((AX + 2)) 80 $AZ)
+    echo "wire power with a redstone book in slot 3: ${power:-none}"
+    [ "$power" = 3 ] || fail "a redstone book in slot 4 (index 3) answered ${power}, expected 3"
+
+    # The book's own text: slot 1 (index 0) yields no signal.
+    open_menu $AX 80 $AZ south
+    take_one 303
+    put_one bibliocraft:redstone_book 300
+    [ "$(container_item 300)" = "bibliocraft:redstone_book" ] \
+        || fail "slot 300 holds '$(container_item 300)', expected the redstone book"
+    ctl close >/dev/null 2>&1 || true
+    ctl wait 20
+    power=$(wire_power $((AX + 2)) 80 $AZ)
+    echo "wire power with the redstone book in slot 1: ${power:-none}"
+    [ "$power" = 0 ] || fail "the redstone book in slot 1 answered ${power}, expected 0 (the book's own scale)"
+
+    say "a stone put into a bookcase slot is handed back (books only)"
+    ctl command "clear @s" >/dev/null
+    ctl give minecraft:stone 1 >/dev/null
+    ctl wait 4
+    open_menu $AX 80 $AZ south
+    put_one minecraft:stone 309
+    ctl wait 10
+    [ "$(container_item 309)" = "" ] || fail "the bookcase kept the stone in slot 309 ('$(container_item 309)')"
+    echo "slot 309 is empty again: the bookcase refused the stone"
+    ctl close >/dev/null 2>&1 || true
+    ctl wait 3
+
+    # ---------------------------------------------------------------- hoppers
+    say "a hopper above fills the bookcase and a hopper below empties it into a chest"
+    BX=12
+    BZ=16
+    ctl setblock $BX 80 $BZ bibliocraft:oak_bookcase >/dev/null || fail "cannot set the second bookcase"
+    ctl setblock $BX 81 $BZ "minecraft:hopper[facing=down]" >/dev/null || fail "cannot set the upper hopper"
+    ctl wait 5
+    ctl command "item replace block $BX 81 $BZ container.0 with minecraft:book 3" >/dev/null \
+        || fail "cannot fill the hopper"
+    ctl wait 80
+    ctl command "tp @s $BX.5 80 $((BZ + 2)).5 180 20" >/dev/null
+    ctl wait 4
+    open_menu $BX 80 $BZ south
+    stored=$(ctl screen | jq '[.slots[] | select(.slot >= 300 and .slot <= 315 and .item == "minecraft:book") | .count] | add // 0')
+    echo "books in the bookcase after the hopper: $stored"
+    [ "$stored" = 3 ] || fail "the hopper pushed $stored books, expected 3"
+    ctl close >/dev/null 2>&1 || true
+    ctl wait 3
+    ctl setblock $BX 79 $BZ "minecraft:hopper[facing=west]" >/dev/null || fail "cannot set the lower hopper"
+    ctl setblock $((BX - 1)) 79 $BZ minecraft:chest >/dev/null || fail "cannot set the chest"
+    ctl wait 80
+    # The chest sits in the floor, so the face a player reaches is its top one.
+    ctl command "tp @s $((BX - 1)).5 80 $((BZ + 2)).5 180 40" >/dev/null
+    ctl wait 4
+    open_menu $((BX - 1)) 79 $BZ up
+    in_chest=$(ctl screen | jq '[.slots[] | select(.item == "minecraft:book") | .count] | add // 0')
+    echo "books in the chest: $in_chest"
+    [ "$in_chest" -ge 1 ] || fail "the lower hopper moved no book into the chest"
+    ctl close >/dev/null 2>&1 || true
+    ctl wait 3
+
+    # ------------------------------------------------------- the shelf keeps anything
+    say "the shelf opens a 4-slot menu and keeps a stone"
+    SX=10
+    SZ=20
+    ctl setblock $SX 80 $SZ bibliocraft:oak_shelf >/dev/null || fail "cannot set the shelf"
+    ctl wait 5
+    ctl command "tp @s $SX.5 80 $((SZ + 2)).5 180 20" >/dev/null
+    ctl wait 4
+    open_menu $SX 80 $SZ south
+    slots=$(container_slots)
+    echo "shelf menu slots: $slots"
+    [ "$slots" = 4 ] || fail "the shelf menu shows $slots slots, expected 4 (upstream ShelfBlockEntity: 4)"
+    ctl command "clear @s" >/dev/null
+    ctl give minecraft:stone 1 >/dev/null
+    ctl wait 4
+    put_one minecraft:stone 302
+    [ "$(container_item 302)" = "minecraft:stone" ] || fail "the shelf refused the stone (slot 302: '$(container_item 302)')"
+    echo "the shelf kept the stone the bookcase refuses"
+    ctl close >/dev/null 2>&1 || true
+    ctl wait 3
+
+    # --------------------------------------- a broken bookcase spills its books
+    # A mod container is a container: the engine runs `Containers.dropContents` for it
+    # when the block goes (`spill.rs:485`, `preRemoveSideEffects`), so a broken bookcase
+    # spills its books exactly as a broken chest would, and its own item drops beside
+    # them. The port writes no `minecraft:block_entity_data` payload: the contents are
+    # already on the ground, and carrying them twice is not upstream's behaviour either.
+    say "a broken bookcase spills its books and drops itself"
+    CX=14
+    CZ=16
+    ctl setblock $CX 80 $CZ bibliocraft:oak_bookcase >/dev/null || fail "cannot set the third bookcase"
+    ctl wait 5
+    ctl command "tp @s $CX.5 80 $((CZ + 2)).5 180 20" >/dev/null
+    ctl wait 4
+    ctl command "clear @s" >/dev/null
+    ctl give minecraft:book 2 >/dev/null || fail "cannot give the books"
+    ctl wait 4
+    open_menu $CX 80 $CZ south
+    put_one minecraft:book 301
+    put_one minecraft:book 302
+    kept=$(ctl screen | jq '[.slots[] | select(.slot >= 300 and .slot <= 315 and .item == "minecraft:book") | .count] | add // 0')
+    echo "books before the break: $kept"
+    [ "$kept" = 2 ] || fail "the bookcase holds $kept books before the break, expected 2"
+    ctl close >/dev/null 2>&1 || true
+    ctl wait 3
+
+    ctl command "gamemode survival @s" >/dev/null
+    ctl wait 20
+    ctl command "clear @s" >/dev/null
+    ctl command "kill @e[type=minecraft:item]" >/dev/null
+    ctl give minecraft:iron_axe 1 >/dev/null
+    ctl wait 4
+    ctl select minecraft:iron_axe >/dev/null || fail "cannot select the axe"
+    ctl wait 4
+    ctl look-at-block $CX 80 $CZ >/dev/null || true
+    broken=$(ctl break $CX 80 $CZ) || { echo "break reply: $broken"; fail "cannot break the bookcase"; }
+    echo "$broken" | jq -c '{block,drops}'
+    [ "$(echo "$broken" | jq -r '.block')" = "minecraft:air" ] || fail "the bookcase did not break"
+    [ "$(echo "$broken" | jq -r '.drops["bibliocraft:oak_bookcase"] // 0')" -ge 1 ] \
+        || fail "the broken bookcase did not drop itself"
+    # The break reply is the engine's own report of what the block dropped: the
+    # container's two books ride it beside the block item (`Containers.dropContents`).
+    spilled=$(echo "$broken" | jq -r '.drops["minecraft:book"] // 0')
+    echo "books in the break reply: $spilled"
+    [ "$spilled" -ge 2 ] || fail "the broken bookcase spilled $spilled books, expected the 2 it held"
+    ctl wait 10
+    # And they are real items in the world or in the breaker's inventory (a drop
+    # that lands at the player's feet is picked up on the next tick).
+    ground=$(ctl entities 16 item | jq '[.entities[]? | select(.kind == "item" and .item.item == "minecraft:book") | .item.count] | add // 0')
+    carried=$(count_item minecraft:book)
+    echo "books after the break: on the ground $ground, carried $carried"
+    [ $((ground + carried)) -ge 2 ] || fail "the 2 spilled books are nowhere: ground $ground, carried $carried"
+
+    # And the block item is a plain bookcase again: placing it gives an empty one.
+    ctl command "tp @s $CX.5 80 $CZ.5" >/dev/null
+    ctl wait 30
+    held=$(count_item bibliocraft:oak_bookcase)
+    echo "bookcase items in the inventory: $held"
+    [ "$held" -ge 1 ] || fail "the dropped bookcase was not picked up"
+    ctl command "tp @s $CX.5 80 $((CZ + 3)).5" >/dev/null
+    ctl wait 6
+    ctl command "gamemode creative @s" >/dev/null
+    ctl wait 10
+    ctl select bibliocraft:oak_bookcase >/dev/null 2>&1 || true
+    ctl wait 4
+    reply=$(ctl place $CX 80 $CZ --item bibliocraft:oak_bookcase 2>&1) \
+        || { echo "place reply: $reply"; fail "cannot place the bookcase again"; }
+    ctl wait 8
+    [ "$(block_state $CX 80 $CZ)" = "bibliocraft:oak_bookcase" ] || fail "the bookcase was not placed again"
+    open_menu $CX 80 $CZ south
+    restored=$(ctl screen | jq '[.slots[] | select(.slot >= 300 and .slot <= 315 and .item == "minecraft:book") | .count] | add // 0')
+    echo "books in the replaced bookcase: $restored"
+    [ "$restored" = 0 ] || fail "the replaced bookcase kept $restored books (the block item carries no contents)"
+    ctl close >/dev/null 2>&1 || true
+    ctl wait 3
+
+fi
 
 # ------------------------------------------------------------- unknown ids
 say "unknown ids are refused"
@@ -393,11 +674,23 @@ if [ "$COUNTERFACTUAL" = 1 ]; then
 fi
 
 if [ "$SELFTEST" = 1 ]; then
-    # A real assertion on a real read, deliberately false: the vanilla control
-    # cell holds plain air after its break, never a Bibliocraft block.
+    # Slice 2's own fail-capable assertion first: the bookcase's menu is 16 slots,
+    # never a vanilla barrel's 27, so this must fail on the real package.
+    ctl command "tp @s 8.5 80 18.5 180 20" >/dev/null
+    ctl wait 6
+    open_menu 8 80 16 south
+    got=$(container_slots)
+    [ "$got" = 27 ] \
+        || fail "SELFTEST: expected the bookcase menu to show 27 slots, found '$got' — the 16-slot assertion can fail (this exit 1 is the proof)"
+    # And slice 1's, a real assertion on a real read, deliberately false: the
+    # vanilla control cell holds plain air after its break, never a Bibliocraft block.
     got=$(block_state 28 80 20)
     [ "$got" = "bibliocraft:oak_bookcase" ] \
         || fail "SELFTEST: expected the vanilla control cell to be bibliocraft:oak_bookcase, found '$got' — the differential assertion can fail (this exit 1 is the proof)"
 fi
 
-echo "PASS: 30 states bind, the bookcase faces the player from all four sides, all four blocks place and drop themselves, the vanilla white glazed terracotta control drops only itself, the four recipes craft while the stick control is empty, the tags contain the blocks, the tab lists four and every item gives, and unknown ids are refused"
+if [ "$COUNTERFACTUAL" = 1 ]; then
+    echo "PASS (counterfactual): the slice-1 differentials hold and the storage phase ran against a vanilla barrel (27 slots, takes stone)"
+else
+    echo "PASS: 30 states bind, the bookcase faces the player from all four sides, all four blocks place and drop themselves, the vanilla white glazed terracotta control drops only itself, the five recipes craft while the wrong-ingredient controls are empty, the tags contain the blocks, the tab lists five and every item gives, the bookcase opens a 16-slot books-only menu whose redstone book answers its slot index on a comparator wire (and a plain book answers 0), a hopper fills it and another empties it into a chest, the shelf opens 4 slots and keeps a stone, a broken bookcase spills its books and drops itself (a plain item placed again is empty), and unknown ids are refused"
+fi

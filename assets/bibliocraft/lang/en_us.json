@@ -3,5 +3,8 @@
   "block.bibliocraft.oak_shelf": "Oak Storage Shelf",
   "block.bibliocraft.black_oak_seat": "Black Oak Seat",
   "block.bibliocraft.desk_bell": "Desk Bell",
+  "item.bibliocraft.redstone_book": "Redstone Book",
+  "container.bibliocraft.bookcase": "Bookcase",
+  "container.bibliocraft.shelf": "Shelf",
   "itemGroup.bibliocraft": "Bibliocraft"
 }

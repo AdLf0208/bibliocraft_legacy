@@ -5,8 +5,7 @@
     "explosion_resistance": 3.0,
     "requires_tool": false,
     "sounds": "minecraft:oak_planks",
-    "map_color": 13,
-    "occludes": false
+    "map_color": 13
   },
   "state_properties": {
     "waterlogged": {

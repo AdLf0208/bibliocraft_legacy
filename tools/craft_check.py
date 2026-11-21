@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Craft the Bibliocraft slice-1 shaped recipes in a real crafting table.
+"""Craft the Bibliocraft port's recipes in a real crafting table.
 
 Called by tools/e2e.sh with the open game's control socket. Uses the harness's
 crafting grid (`ctl screen`: slots 100-108 row-major, result 200), gives the
@@ -13,8 +13,11 @@ ingredients, and asserts:
    `bibliocraft:black_oak_seat` (` W / S /RSR`);
 4. one stone button + three iron ingots + one redstone -> one
    `bibliocraft:desk_bell` (` B / I /IRI`);
-5. six sticks in the bookcase's plank slots leave the result empty
-   (a deliberately unmatched item: oak planks would make the bookcase).
+5. a book and a redstone torch (shapeless) -> one
+   `bibliocraft:redstone_book` (slice 2);
+6. six sticks in the bookcase's plank slots leave the result empty
+   (a deliberately unmatched item: oak planks would make the bookcase), and
+   two books in the shapeless grid leave it empty as well.
 
 The table is replaced before every case, so a failed/untaken result cannot
 leak into the next grid. Exits 1 with the observed result on the first
@@ -158,6 +161,25 @@ def main():
         "bibliocraft:desk_bell",
         1,
     )
+    # Slice 2: the redstone book is shapeless (`recipe/redstone_book.json`), so
+    # its two ingredients sit in any two cells.
+    check(
+        "redstone book",
+        [("minecraft:book", 1), ("minecraft:redstone_torch", 1)],
+        [
+            ("minecraft:book", "left", [100]),
+            ("minecraft:redstone_torch", "left", [104]),
+        ],
+        "bibliocraft:redstone_book",
+        1,
+    )
+    check(
+        "wrong redstone book ingredients",
+        [("minecraft:book", 2)],
+        [("minecraft:book", "right", [100, 104])],
+        None,
+        0,
+    )
     check(
         "wrong bookcase ingredients",
         [("minecraft:stick", 6), ("minecraft:oak_slab", 3)],
@@ -173,7 +195,10 @@ def main():
         for failure in failures:
             print("FAIL:", failure, file=sys.stderr)
         raise SystemExit(1)
-    print("PASS: all four shaped recipes craft and the stick control is empty")
+    print(
+        "PASS: the four shaped recipes and the redstone book's shapeless one craft, "
+        "and the wrong-ingredient controls are empty"
+    )
 
 
 if __name__ == "__main__":

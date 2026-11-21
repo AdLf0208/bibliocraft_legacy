@@ -5,23 +5,28 @@ Ported from **Bibliocraft Legacy 26.1.2-1.7.1**
 `3572b71fed1429556068173c51308be5dff9d33b`, tag `26.1.2-1.7.1`,
 `gradle.properties`) for Minecraft 26.3. Originally a `.hnmod` bundle at
 Horizon **c9d474d** / **83ad384f**; since **2026-11-18** one flat SDK package
-(mod API 0.2) at nightly **`0b14f8acfd97fa2c750e42795249dcc981178ca4`** /
-mixins **`e59da9094f0c2fdda6c627fe9eff22dec6a906f0`**, version **0.2.0** — see
-[`## Migration to the SDK format`](#migration-to-the-sdk-format-020-2026-11-18).
-The 0.1.0 sections below describe the retired container and stay as history.
+(mod API 0.2), now at SDK nightly
+**`0a875da91dbb0fdcb7ba8c42c11341aa229af51a`** / mixins
+**`e59da9094f0c2fdda6c627fe9eff22dec6a906f0`**, version **0.2.3** — see
+[`## Migration to the SDK format`](#migration-to-the-sdk-format-020-2026-11-18)
+for the container change and
+[`## Slice 2`](#slice-2--the-bookcase-and-the-shelf-are-storage-023-2026-11-21)
+for the storage family.
 
 **Licence: MIT** (`LICENSE`, `gradle.properties:license.name=MIT`). The port is
 **local-only until publishing is approved** (ARCHITECTURE.md §8): the upstream
 models and lang are MIT, but the campaign does not publish without the
 maintainer's explicit approval.
 
-Status: **ported-partial — slice 1 implemented and verified in-game at 0.1.0;
-the SDK package is compile-verified, not yet run in game.** Slice 1 is four
-plain, decorative furniture blocks: the oak bookcase, oak shelf, black oak seat
-and desk bell. They carry their states, shapes, items, drops, recipes, tags and
-one creative tab. There is **no block entity, no GUI and no hook**: the
-upstream bookcase/shelf inventories, the seat entity, the desk bell's sound and
-the redstone/enchant answers are deferred (see Gaps).
+Status: **ported** — slice 1 (four decorative furniture blocks) and slice 2 (the
+bookcase and the shelf as storage: block entities, content menus, the
+redstone-book comparator, hopper access, the spill on break, and the
+`redstone_book` item) are implemented, packaged at 0.2.3 and **run in game** on
+a launcher-built `0a875da` game (`tools/e2e.sh`: `PASS` + `EXIT:0`; a vanilla
+barrel counterfactual at `EXIT:0`; `SELFTEST=1` at `EXIT:1`). The seat entity,
+the desk bell's bell sound and redstone answers, the table, the other wood types
+and seat colours, and the bookcase's enchanting-table bonus are still open (see
+Gaps).
 
 ## Slice 1
 
@@ -104,13 +109,161 @@ tests pin the exact boxes and the rotation.
   (upstream `BCCreativeTabs.java:19-95`; Horizon content mods cannot insert
   into vanilla tabs).
 
+## Slice 2 — the bookcase and the shelf are storage (0.2.3, 2026-11-21)
+
+The gap this closes is the port's own (`## Deviations and gaps` 1):
+
+> The bookcase and shelf have no inventory, comparator output or enchanting
+> bonus (`BookcaseBlock.java:39-75`, `ShelfBlock.java:29-52`) … These need
+> block entities, an entity, a menu or a sound hook and are later slices.
+
+Upstream, read again at the pinned tag (clone at `/tmp/opencode/bc-upstream`,
+deleted after the findings were recorded; the commit is the same one
+[`## Upstream source`](#upstream-source) names):
+
+| area | file | extracted |
+|---|---|---|
+| bookcase entity | `content/bookcase/BookcaseBlockEntity.java` | `SLOTS = 16`, `isValid` = `#bibliocraft:bookcase_books`, `defaultName("bookcase")`, one item per slot |
+| bookcase block | `content/bookcase/BookcaseBlock.java:49-75` | `hasAnalogOutputSignal` true; `getAnalogOutputSignal` scans **15 → 0** for a `RedstoneBookItem` and answers that **slot index**; `getEnchantPowerBonus` adds `0.125f ×` non-empty slots |
+| bookcase menu | `content/bookcase/BookcaseMenu.java` | two rows of eight slots at `(17 + j·18, 17 + i·25)`, the player inventory at `(8, 84)` |
+| shelf entity/menu | `content/shelf/ShelfBlockEntity.java`, `ShelfMenu.java` | 4 slots, **no** filter, no comparator; a 2 × 2 grid at `(53/107, 15/53)` |
+| redstone book | `content/redstonebook/RedstoneBookItem.java`, `init/BCItems.java:102` | a plain `Item`, `stacksTo(1)`, always foiled; its lang text states the scale: slot 1 (top left) no signal, slot 2 → 1, … slot 16 (bottom right) → 15 |
+| book tag | generated `data/bibliocraft/tags/item/bookcase_books.json` | `#minecraft:bookshelf_books` + `#minecraft:lectern_books` + optional foreign guide books |
+| recipes | `data/bibliocraft/recipe/redstone_book.json` | shapeless: `minecraft:book` + `minecraft:redstone_torch` |
+
+### What ships (0.2.3)
+
+- `bibliocraft:oak_bookcase` — a **16-slot** block entity (`bibliocraft:bookcase`),
+  every face reachable by hoppers, a content menu `bibliocraft:bookcase`
+  (`data/bibliocraft/horizon/menu/bookcase.json`), books only
+  (`#bibliocraft:bookcase_books`), and a comparator answer = the highest slot
+  index holding a `bibliocraft:redstone_book`.
+- `bibliocraft:oak_shelf` — a **4-slot** block entity (`bibliocraft:shelf`), no
+  filter, no comparator, menu `bibliocraft:shelf`.
+- `bibliocraft:redstone_book` — one per stack, glinting (`minecraft:enchantment_glint_override`),
+  on vanilla's book item model, crafted shapeless; added to the creative tab and
+  to `#bibliocraft:bookcase_books` and `#minecraft:bookshelf_books`.
+- Both storage blocks **spill** their contents when broken and drop themselves,
+  which is a container's behaviour in vanilla and upstream's (`Block.popResource`
+  of each slot); a plain bookcase item placed again is empty.
+
+### The four routes this slice had to find (each measured)
+
+1. **The menu is opened by the mod, not the engine.** `Registrar::block_container`
+   declares the container and its content menu, but at `0a875da` the engine's
+   plain-click path (`game.rs::open_menu` → `open_mod_menu`) does **not** open a
+   mod block's content menu: a vanilla barrel beside a bookcase opened 27 slots
+   from the same click, the bookcase opened none (probe run
+   `biblio-probe2`). The proven route (`rftoolsstorage`, `functionalstorage`,
+   both green in game) is `Hooks::right_click_block` → `Player::open_menu(server,
+   entity)`; both of those ports open their own menus that way, which is why
+   their legs pass. `support::right_click_block` does the same, cancelling the
+   click on both sides so a held item is not used behind the menu.
+2. **The comparator answer needs a cache.** `BlockPart::analog_output` is given a
+   level host only, which cannot read a block entity, so the tick reads the slots
+   and stores the answer in glue (`support::Core::signal`), and
+   `level_tick_post` asks the neighbours of a changed bookcase to re-read
+   (`Level.updateNeighbourForOutputSignal`) — the pattern `functionalstorage`
+   proved at this pin. The cache is aged by that same tick clock and does not
+   grow without bound.
+3. **A broken container spills by the engine's own path.** `spill.rs:485`
+   (`BaseContainerEntity.preRemoveSideEffects` → `Containers.dropContents`)
+   already spills a mod container's contents on removal. The port therefore
+   writes **no** `minecraft:block_entity_data` payload: the contents are on the
+   ground, and carrying them twice is not upstream's behaviour either. (The
+   `block_drops` route ARCHITECTURE.md §3 documents is for a storage block whose
+   contents would otherwise vanish; here they do not.)
+4. **The filter is enforced in the tick.** `ModContainer` has no per-slot filter
+   and no per-slot stack limit, so a non-book that reaches a bookcase slot
+   through a hopper is handed back by the tick (with the stack spawned at the
+   block, as `Block.popResource` would) — upstream's `isValid` refuses it at
+   insert time; the visible difference is one tick.
+
+### Red → green
+
+The pure rules were written first and failed to compile: **25 `E0425` errors**
+for `slots`, `menu`, `signal`, `enchant_power`, `BOOKCASE`, `SHELF` and
+`BOOKCASE_SLOTS` (`../_shared/evidence/bibliocraft/runtime-tests-red.log`:
+
+```
+error[E0425]: cannot find function `signal` in this scope
+   --> src/runtime.rs:426:20
+error[E0425]: cannot find function `enchant_power` in this scope
+   --> src/runtime.rs:439:20
+error: could not compile `bibliocraft` (lib test) due to 25 previous errors
+TEST_EXIT:101
+```
+
+The enchanting-power rule was then **dropped from the slice** (see Gaps: the
+hook is never dispatched at this pin), so the shipped rules are `slots`,
+`menu` and `signal`, plus the two container tests in `support`) — 18 tests now.
+
+In game, four red runs found four facts before green:
+
+| red | what it taught | fix |
+|---|---|---|
+| `FAIL: the unmodded game placed a Bibliocraft block` (control leg) | the control cell at `40 80 20` is a hillside in a fresh Overworld, not air | probe `40 200 20`, and assert the cell is air first |
+| `FAIL: no container menu opened at 8,80,16 (screen=playing)` | the engine does not open a mod content menu from a plain click (route 1 above) | `right_click_block` + `Player::open_menu` |
+| `FAIL: the click on 11,79,16 failed` | the chest is in the floor; its reachable face is `up`, not `south` | click the top face |
+| `FAIL: the replaced bookcase holds 0 books, expected the 2 it was broken with` | the engine already spilled the books as loose item entities (route 3) | assert the spill, not a carried payload |
+
+### In-game evidence (0.2.3, launcher-built `0a875da`)
+
+`../_shared/evidence/bibliocraft-e2e/` — `e2e.log` (`PASS` + `EXIT:0`),
+`e2e-counterfactual.log` (`COUNTERFACTUAL=1`, `EXIT:0`), `e2e-selftest.log`
+(`SELFTEST=1`, `EXIT:1`), `check-e2e-logs.py --strict` 3/3. The phases this
+slice adds, with the values the run printed:
+
+| assertion | value in the log |
+|---|---|
+| the bookcase's menu shows its container slots | `bookcase menu slots: 16` |
+| a book goes into slot 5 through the menu | `slot 5 (300+5) holds a plain book` |
+| a plain book answers no comparator | `wire power with a plain book in slot 5: 0` |
+| a redstone book in slot 4 answers 3 | `wire power with a redstone book in slot 3: 3` |
+| the same book in slot 1 answers 0 (the book's own scale) | `wire power with the redstone book in slot 1: 0` |
+| the bookcase hands a stone back | `slot 309 is empty again: the bookcase refused the stone` |
+| a hopper above fills it | `books in the bookcase after the hopper: 3` |
+| a hopper below empties it into a chest | `books in the chest: 3` |
+| the shelf's menu is 4 slots and it keeps a stone | `shelf menu slots: 4`, `the shelf kept the stone the bookcase refuses` |
+| a broken bookcase spills its books and drops itself | `books in the break reply: 2`, `on the ground 2, carried 0` |
+| the item placed again is empty | `books in the replaced bookcase: 0` |
+
+The comparator assertions are read from the **wire's own `power` state**, not
+from the port's code: a comparator at `x+1` facing west reads the bookcase at
+`x` (`diode_input_signal` reads `pos + facing`) and drives a wire at `x+2`.
+
+### Traps this slice cost (for the next agent)
+
+1. **`ctl select 0` is refused** — hotbar slots are 1..9 (`agent.rs:1440`); a
+   `clear @s` leaves an empty hand anyway.
+2. **`ctl break`'s reply lists the spilled contents** (`"drops":{"bibliocraft:oak_bookcase":1,"minecraft:book":2}`),
+   which is the engine's own report — but a spilled stack that lands at the
+   player's feet is picked up on the next tick, so count ground **and**
+   inventory.
+3. **`ctl interact` needs the face a player can reach.** A block inside the floor
+   is clicked on `up`.
+4. **The control leg's probe cell must be air in a fresh world**; `40 80 20` is
+   a hillside. `y = 200` is air in every Overworld.
+5. **A content-menu assertion needs `--offscreen`** (trap #21 of HANDOVER §9d);
+   these legs launch `--offscreen`, never `--headless`.
+
 ## Hooks
 
-None. Slice 1 is content-only: the four blocks are declared in
-`data/bibliocraft/horizon/block/` (0.1.0: `content/data/…`), and the package's
-native half is one `impl Hooks` with no method. The runtime model is a
-standalone Rust module; its tests are the only code that runs. No
-`[[injection]]` ever existed, in either format.
+Slice 1 answered no game moment (one `impl Hooks` with no method). Slice 2
+answers three, and everything else that belongs to one block or one block entity
+is a **Part** attached to its type (`support.rs`):
+
+| hook / Part moment | what it does | upstream counterpart |
+|---|---|---|
+| `Hooks::register` | the two block-entity types, their containers (16 / 4 slots, every face, the menu each opens) and each type's Part | `BCBlockEntities.BOOKCASE`/`SHELF`, `Capabilities.ItemHandler.BLOCK` |
+| `Hooks::right_click_block` | a click opens the block's content menu (`Player::open_menu`) | `BookcaseBlock.useWithoutItem` → `getMenuProvider` |
+| `Hooks::level_tick_post` | a changed bookcase's neighbours re-read its comparator answer | `Level.updateNeighbourForOutputSignal` |
+| `BlockPart::has_analog_output` / `analog_output` | the comparator reads the highest redstone book's slot index | `BookcaseBlock.hasAnalogOutputSignal`/`getAnalogOutputSignal` |
+| `BlockEntityPart::block_entity_ticks` / `block_entity_tick` | size the slots once, hand back a non-book, note the comparator answer | `EntityBlock.getTicker`, `isValid` |
+| `BlockEntityPart::screen` | the menu's slot layout (2 × 8 / 2 × 2) | `BookcaseMenu.addSlots`, `ShelfMenu.addSlots` |
+
+No `[[injection]]` ever existed, in either format; the `[[module]]` plan is gone
+with the SDK format.
 
 ## Content (`.hmod`)
 
@@ -130,12 +283,14 @@ The only upstream rewrite is the removal of NeoForge's `"type":
 
 ## Deviations and gaps
 
-1. **Decorative, not functional.** The bookcase and shelf have no inventory,
-   comparator output or enchanting bonus (`BookcaseBlock.java:39-75`,
-   `ShelfBlock.java:29-52`); the seat does not spawn a `SeatEntity` and does
-   not drop a seat back above (`SeatBlock.java:74-145`); the desk bell does not
-   ring on use or on a redstone signal (`DeskBellBlock.java:49-62`). These need
-   block entities, an entity, a menu or a sound hook and are later slices.
+1. **Storage ported (slice 2); the rest is not.** The bookcase's 16 slots, its
+   book filter, its menu, its comparator answer and the contents a broken one
+   spills are in (see `## Slice 2`), and so is the shelf's 4-slot menu. Still
+   open: the bookcase's **enchanting-table bonus** (`blocked`, Gaps below), the
+   seat does not spawn a `SeatEntity` and does not drop a seat back above
+   (`SeatBlock.java:74-145`), and the desk bell does not ring on use or on a
+   redstone signal (`DeskBellBlock.java:49-62`). Those need an entity and a
+   sound hook and are later slices.
 2. **Table deferred.** Its collision depends on `type` *and* `facing`
    (`TableBlock.java:89-107`), and the content `shapes` selector can only read
    one template property, so a faithful table needs a native block shape path.
@@ -161,8 +316,58 @@ The only upstream rewrite is the removal of NeoForge's `"type":
    `minecraft:mineable/axe`.
 8. **No sounds, particles or animations** are carried. The desk bell's four
    `.ogg` files and `sounds.json` entry are deferred with the sound hook.
+9. **One item per bookcase slot is not expressible.** Upstream gives the
+   bookcase `slotCapacity 1`; `ModContainer` has no per-slot limit, so a slot
+   takes the item's own stack size. A book stack in one slot still answers the
+   comparator by that slot's index, and the menu is unchanged.
+10. **The book filter is one tick late.** Upstream's `isValid` refuses a
+    non-book at insert time; the tick hands it back instead (one tick later,
+    spawned at the block). A hopper therefore cannot permanently fill a
+    bookcase with stone, but it moves the stack in and out.
+11. **The enchanting-table bonus is not ported (`blocked`).**
+    `BookcaseBlock.getEnchantPowerBonus` adds `0.125` per non-empty slot. The
+    SDK declares a `enchant_power_bonus` BlockPart hook, but the game at
+    `0a875da` **never dispatches it**: `grep -rn "enchant_power_bonus"
+    horizon/crates --include=*.rs` finds nothing, and the enchanting table
+    counts blocks in `#minecraft:enchantment_power_provider` instead
+    (`game/stations.rs:645-676`, `count_bookshelves`). The hook's host is a
+    `&dyn Host`, which cannot reach a level or a block entity (`levels()` is a
+    server-only service), so the count could not be read either. The bookcase is
+    deliberately **not** in that provider tag: the tag is static, so an *empty*
+    bookcase would be worth a whole bookshelf. The in-game leg asserts the gap
+    (`info.bookcases` stays 0 behind a full bookcase and 1 behind a vanilla
+    bookshelf) so it fails the day the pin consults the hook.
 
-Skills: superpowers/using-superpowers,verification-before-completion; BeautifulRust/rust-best-practices
+Skills: superpowers/using-superpowers, brainstorming, writing-plans, test-driven-development, systematic-debugging, verification-before-completion; BeautifulRust/rust-best-practices, rust-port
+
+## Verification (0.2.3)
+
+The full ladder, its commands and every line of output are in
+[`VALIDATION.md`](VALIDATION.md); the evidence files live in
+`../_shared/evidence/bibliocraft/` (ladder) and
+`../_shared/evidence/bibliocraft-e2e/` (the game legs), and every log prints the
+`SIZE`/`SHA256`/`VERSION`/`PIN` it ran against. The headline:
+
+| check | result |
+|---|---|
+| `cargo test --offline` | **18 passed, 0 failed** (`sdk-test.log`) |
+| `cargo clippy --all-targets -- -D warnings` | exit 0, 0 warnings (`sdk-clippy.log`) |
+| `cargo fmt --check` | exit 0 (`sdk-fmt.log`) |
+| two builds after `rm -f Cargo.lock` | **`cmp`-identical**, 41,697 B, SHA-256 `fe1eba2d…6185` |
+| `cargo horizon-mod check` | `bibliocraft 0.2.3 (native-mod, format native-1/0a875da…/e59da90…, for 26.3)`, exit 0 (`sdk-check.log`) |
+| `fits --build 0a875da` | `0a875da  made for`, exit 0 (`sdk-fits.log`) |
+| `fits --build 0b14f8a` | `0b14f8a  fits`, exit 0 (`sdk-fits-other.log`) |
+| `verify-sdk-package.py bibliocraft` | **1/1** (runtime byte-identical, no `Cargo.lock`, 56 entries) |
+| `tools/e2e.sh` | `PASS` + `EXIT:0` (`e2e.log`) |
+| `COUNTERFACTUAL=1 tools/e2e.sh` | `PASS (counterfactual)` + `EXIT:0` |
+| `SELFTEST=1 tools/e2e.sh` | `FAIL: SELFTEST: expected the bookcase menu to show 27 slots, found '16'` + `EXIT:1` |
+| `check-e2e-logs.py bibliocraft-e2e --strict` | 3/3 |
+
+The two false paths the ladder had to avoid: the first package builds at this
+version reported `fits --build 0b14f8a` failing on a local `Block` type (fixed
+by the `Piece` rename), and the `open_mod_menu` route was dead in game (see
+[`## Slice 2`](#slice-2--the-bookcase-and-the-shelf-are-storage-023-2026-11-21),
+route 1).
 
 ## Verification (0.1.0, historical)
 
@@ -242,17 +447,45 @@ After verification the port's `target/` and `content/target/` build state were
 removed (sources, `notes.md`, `content/` and the delivered `.hmod` remain), per
 the campaign disk-hygiene rule.
 
+## Upstream defects fixed
+
+**None found in this slice**, and two candidates were checked:
+
+- the comparator's answer is the *slot index*, so a redstone book in slot 1
+  (index 0) gives no signal. That looks like an off-by-one but is the mod's
+  stated design — `item.bibliocraft.redstone_book.text` in the jar's own lang
+  spells the scale out ("Slot 1 (top left) yields no signal. Slot 2 yields a
+  signal strength of 1 … slot 16 … 15"), so the port keeps it and the e2e
+  asserts both ends of it;
+- `#bibliocraft:bookcase_books` lists several **optional** foreign guide books
+  (`actuallyadditions:booklet`, `ftbquests:book`, …). They are not in the
+  registry, so the port declares the two vanilla tags and its own redstone book
+  only; the carried tag is incomplete by design, not broken.
+
 ## Upstream source
 
 Repository `https://github.com/MinecraftschurliMods/Bibliocraft-Legacy`,
 branch `main`, commit `3572b71fed1429556068173c51308be5dff9d33b` (version
-`26.1.2-1.7.1`), **MIT**. Area-level findings with file:line citations are in
+`26.1.2-1.7.1`), **MIT**. Re-cloned (shallow, the tag checked out) for slice 2
+at `/tmp/opencode/bc-upstream` and deleted after the findings above were
+recorded; the files read are named in `## Slice 2`. Area-level findings with file:line citations are in
 [`../_shared/upstream/bibliocraft/FINDINGS.md`](../_shared/upstream/bibliocraft/FINDINGS.md);
 the clone was deleted after the findings were recorded.
 
 ## Skills and references used
 
-- superpowers: `test-driven-development` (the runtime model's tests were run
+- superpowers (slice 2): `using-superpowers`, `brainstorming` (choosing the
+  storage family over the seat entity and the desk bell), `writing-plans` (the
+  slice plan), `test-driven-development` (the red `E0425` run before the rules
+  existed, then the glue), `systematic-debugging` (four in-game red runs turned
+  into four facts, `## Slice 2`), `verification-before-completion` (every claim
+  in `VALIDATION.md` is a command and its output, on the delivered bytes).
+- Beautiful Rust (slice 2): `rust-best-practices` (`Piece` over `Block` for the
+  model enum, named constants for every upstream number, `expect` with a reason
+  on the two `block_entity_part` attaches, `#[expect(…, reason)]` on the one
+  `needless_update`, no `unwrap`, `cargo fmt` + clippy `-D warnings`), `rust-port`
+  (the upstream Java read as behaviour only).
+- superpowers (slice 1): `test-driven-development` (the runtime model's tests were run
   before the model existed and failed to compile; the in-game content test was
   run red before the content root was built),
   `systematic-debugging` (any in-game failure is diagnosed from the harness
@@ -439,24 +672,50 @@ mod is exactly as large as its declarations.
 
 ### Gaps
 
-Everything in *Deviations and gaps* above still stands (decorative-only blocks, the table, the
-declared-but-not-simulated `waterlogged`, occlusion, one wood type / one seat colour, the seat's
-extra `axis`, the pickaxe-only desk bell, no sounds). Added by the format:
+Everything in *Deviations and gaps* above still stands (the table, the
+declared-but-not-simulated `waterlogged`, occlusion, one wood type / one seat
+colour, the seat's extra `axis`, the pickaxe-only desk bell, no sounds, one item
+per bookcase slot, the one-tick filter, the blocked enchanting bonus). The
+0.2.0 gaps are closed:
 
-1. **No in-game run of the SDK package.** The launcher is not installed in this environment, so no
-   `0b14f8a` game with this package exists here. `tools/e2e.sh` is updated for a launcher-built game
-   and keeps its fail-capable `SELFTEST=1`, but **the run is not claimed**; the 0.1.0 in-game results
-   above (whose logs are gone) remain the behaviour's only evidence. This is what keeps the port at
-   `ported-partial` rather than `ported`.
-2. **The native half compiles to nothing.** `src/lib.rs` is one empty `impl Hooks`: the package is a
-   content package that happens to be native because the campaign's rule packs `src/runtime.rs` and
-   its tests with the port. A launcher build therefore pays a (small) compile for no registered
-   behaviour. The alternative — a content-only package — would drop the model and its 11 tests from
-   the artifact, which the campaign's rule forbids.
-3. **`gen_content.py` was not re-run.** The upstream checkout was deleted after the 0.1.0 findings
-   (`_shared/upstream/bibliocraft` holds only `FINDINGS.md`), so the generator's new `--out` default
-   is syntax-checked (`py_compile`) but not executed; the carried files are byte-identical to the
-   retired ones and are the evidence.
+1. ~~**No in-game run of the SDK package.**~~ **Closed in 0.2.3**: the launcher
+   builds this package and `tools/e2e.sh` runs on the built game — `PASS` +
+   `EXIT:0`, the barrel counterfactual at `EXIT:0`, `SELFTEST=1` at `EXIT:1`
+   (`../_shared/evidence/bibliocraft-e2e/`).
+2. ~~**The native half compiles to nothing.**~~ **Closed in 0.2.3**: it now
+   registers two block-entity types, two containers, two menus and their Parts,
+   and answers three hooks.
+3. ~~**`gen_content.py` was not re-run.**~~ **Closed in 0.2.3**: re-run against
+   a fresh clone of the pinned tag, and the tree it writes is byte-identical to
+   the delivered one.
+
+Open for later slices (each named in the jar, none started):
+
+| family | state |
+|---|---|
+| the seat's `SeatEntity`, riding, the seat back, `occupied` redstone | not ported (`SeatBlock.java:74-155`; needs an entity type and mount hooks) |
+| the desk bell's bell sound on use and on a redstone signal | not ported (`DeskBellBlock.java:49-62`; needs a sound hook and the four `.ogg` files) |
+| the table (`type` × `facing` collision, its block entity) | not ported (`TableBlock.java:34-166`) |
+| the bookcase's enchanting-table bonus | `blocked(enchant_power_bonus never dispatched)` |
+| the other 11 wood types and 15 seat colours; the other furniture (lamps, display cases, clocks, labels, potion shelves, typewriters, printing tables, cookie jars, dinner plates, disc racks, sword pedestals, armour stands, big books, shelf backs) | not ported (content + block entities; a later slice each) |
+
+### Changelog (0.2.3)
+
+> **0.2.3 — slice 2: the bookcase and the shelf are storage.** The two wood blocks now have block
+> entities: the oak bookcase is a 16-slot, books-only container (`#bibliocraft:bookcase_books`) opened
+> by a click, whose `bibliocraft:redstone_book` in slot *n* makes a comparator answer *n* (0–15, its
+> own lang text's scale) and whose books spill when it is broken; the oak shelf is a plain 4-slot
+> one. Both reach hoppers on every face, both have a content menu (`bibliocraft:bookcase`,
+> `bibliocraft:shelf`), and the `redstone_book` item arrives with its shapeless book + redstone-torch
+> recipe, one per stack and glinting. What changed since 0.2.0 for `api = "0.2"`: `src/lib.rs` gained
+> `register`, `right_click_block` and `level_tick_post`; `src/support.rs` is new (the two Parts, the
+> container declarations, the comparator cache, the menu layouts); `src/runtime.rs` gained the slot,
+> menu and comparator rules and its `Block` model type was renamed `Piece` (a local `Block` made
+> `fits --build 0b14f8a` report a false positive); `data/bibliocraft/horizon/{menu,item}/` and the
+> book case tag are new. Built against SDK `0a875da` / mixins `e59da90` for 26.3, run in game
+> (`PASS`/`EXIT:0`, counterfactual `EXIT:0`, selftest `EXIT:1`). Still open: the seat entity, the
+> desk bell's bell sound, the table, the other wood types and colours, and the bookcase's
+> enchanting-table bonus (`blocked(enchant_power_bonus never dispatched)`).
 
 ### Changelog (0.2.0)
 

@@ -1,0 +1,7 @@
+{
+  "template": "minecraft:book",
+  "max_stack_size": 1,
+  "components": {
+    "minecraft:enchantment_glint_override": true
+  }
+}

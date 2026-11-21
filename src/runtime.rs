@@ -138,14 +138,14 @@ mod model {
 
     /// The four blocks in slice 1.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum Block {
+    pub enum Piece {
         Bookcase,
         Shelf,
         Seat,
         DeskBell,
     }
 
-    impl Block {
+    impl Piece {
         /// Every block in the slice.
         pub const ALL: [Self; 4] = [Self::Bookcase, Self::Shelf, Self::Seat, Self::DeskBell];
 
@@ -235,9 +235,64 @@ mod model {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Slice 2 — the bookcase and the shelf are storage (`BEMenuBlockEntity` blocks)
+// ---------------------------------------------------------------------------
+
+/// The bookcase block (`BookcaseBlock`).
+pub const BOOKCASE: &str = "bibliocraft:oak_bookcase";
+/// The shelf block (`ShelfBlock`).
+pub const SHELF: &str = "bibliocraft:oak_shelf";
+/// The bookcase's slots (`BookcaseBlockEntity`: `private static final int SLOTS = 16`).
+pub const BOOKCASE_SLOTS: usize = 16;
+/// The shelf's slots (`ShelfBlockEntity`: `super(BCBlockEntities.SHELF, 4, …)`).
+pub const SHELF_SLOTS: usize = 4;
+/// The bookcase's menu type (`data/bibliocraft/horizon/menu/bookcase.json`).
+pub const BOOKCASE_MENU: &str = "bibliocraft:bookcase";
+/// The shelf's menu type (`data/bibliocraft/horizon/menu/shelf.json`).
+pub const SHELF_MENU: &str = "bibliocraft:shelf";
+/// The item a bookcase's comparator answers to (`RedstoneBookItem`).
+pub const REDSTONE_BOOK: &str = "bibliocraft:redstone_book";
+/// The item tag a bookcase accepts (`BCTags.Items.BOOKCASE_BOOKS`).
+pub const BOOKCASE_BOOKS: &str = "bibliocraft:bookcase_books";
+
+/// How many slots `block` holds, or `None` when it is not a storage block.
+#[must_use]
+pub fn slots(block: &str) -> Option<usize> {
+    match block {
+        BOOKCASE => Some(BOOKCASE_SLOTS),
+        SHELF => Some(SHELF_SLOTS),
+        _ => None,
+    }
+}
+
+/// The content menu `block` opens, or `None` when it opens none.
+#[must_use]
+pub fn menu(block: &str) -> Option<&'static str> {
+    match block {
+        BOOKCASE => Some(BOOKCASE_MENU),
+        SHELF => Some(SHELF_MENU),
+        _ => None,
+    }
+}
+
+/// Upstream's `BookcaseBlock.getAnalogOutputSignal`: the slot index (0 to 15) of the
+/// highest slot holding a redstone book, and 0 when none does.
+///
+/// The book's own description names the same scale: slot 1 (top left) yields no signal,
+/// slot 2 yields 1, and slot 16 (bottom right) yields 15.
+#[must_use]
+pub fn signal(redstone_book: &[bool]) -> i32 {
+    redstone_book
+        .iter()
+        .rposition(|&is_redstone_book| is_redstone_book)
+        .map_or(0, |index| index as i32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::model::*;
+    use super::{BOOKCASE, BOOKCASE_SLOTS, SHELF, menu, signal, slots};
 
     fn boxes(shape: &[Box3]) -> Vec<[f64; 6]> {
         shape.iter().map(|box3| box3.to_array()).collect()
@@ -314,38 +369,38 @@ mod tests {
     fn state_counts_are_the_declared_spaces() {
         // The seat's 12 includes the oak_log template's three axis values;
         // the upstream seat has 4 (occupied x waterlogged).
-        assert_eq!(Block::Bookcase.state_count(), 8);
-        assert_eq!(Block::Shelf.state_count(), 8);
-        assert_eq!(Block::Seat.state_count(), 12);
-        assert_eq!(Block::DeskBell.state_count(), 2);
+        assert_eq!(Piece::Bookcase.state_count(), 8);
+        assert_eq!(Piece::Shelf.state_count(), 8);
+        assert_eq!(Piece::Seat.state_count(), 12);
+        assert_eq!(Piece::DeskBell.state_count(), 2);
     }
 
     #[test]
     fn all_four_ids_are_namespaced() {
-        assert_eq!(Block::ALL.len(), 4);
-        for block in Block::ALL {
+        assert_eq!(Piece::ALL.len(), 4);
+        for block in Piece::ALL {
             assert!(block.id().starts_with("bibliocraft:"), "{}", block.id());
         }
-        assert_eq!(Block::Bookcase.id(), "bibliocraft:oak_bookcase");
-        assert_eq!(Block::Shelf.id(), "bibliocraft:oak_shelf");
-        assert_eq!(Block::Seat.id(), "bibliocraft:black_oak_seat");
-        assert_eq!(Block::DeskBell.id(), "bibliocraft:desk_bell");
+        assert_eq!(Piece::Bookcase.id(), "bibliocraft:oak_bookcase");
+        assert_eq!(Piece::Shelf.id(), "bibliocraft:oak_shelf");
+        assert_eq!(Piece::Seat.id(), "bibliocraft:black_oak_seat");
+        assert_eq!(Piece::DeskBell.id(), "bibliocraft:desk_bell");
     }
 
     #[test]
     fn templates_are_vanilla_and_match_the_placement_model() {
         assert_eq!(
-            Block::Bookcase.template(),
+            Piece::Bookcase.template(),
             "minecraft:white_glazed_terracotta"
         );
-        assert_eq!(Block::Shelf.template(), "minecraft:white_glazed_terracotta");
-        assert_eq!(Block::Seat.template(), "minecraft:oak_log");
-        assert_eq!(Block::DeskBell.template(), "minecraft:mangrove_roots");
+        assert_eq!(Piece::Shelf.template(), "minecraft:white_glazed_terracotta");
+        assert_eq!(Piece::Seat.template(), "minecraft:oak_log");
+        assert_eq!(Piece::DeskBell.template(), "minecraft:mangrove_roots");
     }
 
     #[test]
     fn waterlogged_does_not_change_a_shape() {
-        for block in [Block::Bookcase, Block::Shelf] {
+        for block in [Piece::Bookcase, Piece::Shelf] {
             for facing in Facing::ALL {
                 assert_eq!(
                     block.shape(facing, false),
@@ -355,14 +410,14 @@ mod tests {
                 );
             }
         }
-        assert_eq!(Block::Seat.shape(Facing::North, false), seat_shape());
-        assert_eq!(Block::Seat.shape(Facing::North, true), seat_shape());
+        assert_eq!(Piece::Seat.shape(Facing::North, false), seat_shape());
+        assert_eq!(Piece::Seat.shape(Facing::North, true), seat_shape());
         assert_eq!(
-            Block::DeskBell.shape(Facing::North, false),
+            Piece::DeskBell.shape(Facing::North, false),
             desk_bell_shape()
         );
         assert_eq!(
-            Block::DeskBell.shape(Facing::North, true),
+            Piece::DeskBell.shape(Facing::North, true),
             desk_bell_shape()
         );
     }
@@ -384,9 +439,51 @@ mod tests {
 
     #[test]
     fn shape_property_is_the_template_property_used_by_the_content() {
-        assert_eq!(Block::Bookcase.shape_property(), "facing");
-        assert_eq!(Block::Shelf.shape_property(), "facing");
-        assert_eq!(Block::Seat.shape_property(), "axis");
-        assert_eq!(Block::DeskBell.shape_property(), "waterlogged");
+        assert_eq!(Piece::Bookcase.shape_property(), "facing");
+        assert_eq!(Piece::Shelf.shape_property(), "facing");
+        assert_eq!(Piece::Seat.shape_property(), "axis");
+        assert_eq!(Piece::DeskBell.shape_property(), "waterlogged");
+    }
+
+    // ------------------------------------------------------------------
+    // Slice 2: the bookcase and shelf are storage (upstream's BEMenu blocks)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn the_bookcase_holds_sixteen_slots_and_the_shelf_four() {
+        assert_eq!(slots(BOOKCASE), Some(16));
+        assert_eq!(slots(SHELF), Some(4));
+        // Decorative blocks do not become containers because they share the file.
+        assert_eq!(slots("bibliocraft:black_oak_seat"), None);
+        assert_eq!(slots("bibliocraft:desk_bell"), None);
+        assert_eq!(slots("minecraft:barrel"), None);
+    }
+
+    #[test]
+    fn the_menu_is_the_blocks_own_and_only_a_storage_block_has_one() {
+        assert_eq!(menu(BOOKCASE), Some("bibliocraft:bookcase"));
+        assert_eq!(menu(SHELF), Some("bibliocraft:shelf"));
+        assert_eq!(menu("bibliocraft:desk_bell"), None);
+    }
+
+    /// Upstream's `BookcaseBlock.getAnalogOutputSignal` scans 15 down to 0 for a
+    /// `RedstoneBookItem` and answers that slot index. The item's own text says slot 1
+    /// (top left) yields no signal and slot 16 (bottom right) yields 15.
+    #[test]
+    fn a_redstone_book_answers_the_index_of_the_highest_slot_it_sits_in() {
+        let mut slots = [false; BOOKCASE_SLOTS];
+        assert_eq!(signal(&slots), 0, "an empty bookcase is silent");
+        slots[0] = true;
+        assert_eq!(signal(&slots), 0, "slot 1 (index 0) is signal strength 0");
+        slots[3] = true;
+        assert_eq!(signal(&slots), 3, "slot 4 answers 3");
+        slots[BOOKCASE_SLOTS - 1] = true;
+        assert_eq!(signal(&slots), 15, "slot 16 answers 15");
+    }
+
+    #[test]
+    fn only_a_redstone_book_powers_the_comparator() {
+        // A plain book in every slot is still no signal: upstream tests the item type.
+        assert_eq!(signal(&[false; BOOKCASE_SLOTS]), 0);
     }
 }

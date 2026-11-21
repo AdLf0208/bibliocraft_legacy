@@ -5,8 +5,7 @@
     "explosion_resistance": 6.0,
     "requires_tool": true,
     "sounds": "minecraft:iron_block",
-    "map_color": 33,
-    "occludes": false
+    "map_color": 33
   },
   "default_state": {
     "waterlogged": "false"

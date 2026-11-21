@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate the Bibliocraft Legacy slice-1 content tree from upstream.
+"""Generate the Bibliocraft Legacy content tree (slices 1 and 2) from upstream.
 
-Slice 1 is four plain furniture blocks, all decorative and block-entity-free:
+Slice 1 is four plain furniture blocks:
 
 - `bibliocraft:oak_bookcase` and `bibliocraft:oak_shelf` (facing + waterlogged,
   8 states each) on the `minecraft:white_glazed_terracotta` template, whose placement
@@ -10,10 +10,17 @@ Slice 1 is four plain furniture blocks, all decorative and block-entity-free:
   `bibliocraft:desk_bell` (waterlogged, 2 states) on the
   `minecraft:mangrove_roots` template, which supplies waterlogging only.
 
-The upstream bookcase/shelf inventories, the seat entity, the desk bell's
-sound and the redstone/enchant answers are deferred. Models are the upstream
-MIT assets, adapted to 26.3: the bookcase/shelf/seat models reference vanilla
-plank/wool textures, so this slice ships no textures of its own.
+Slice 2 makes the two wood blocks storage: the bookcase a 16-slot, book-only
+block entity whose redstone books answer a comparator, the shelf a plain 4-slot
+one; both open a content menu (`horizon/menu/*.json`) and keep their contents
+when broken. It also carries the `redstone_book` item (upstream's
+`RedstoneBookItem`, the comparator's trigger) with its shapeless recipe.
+
+Still deferred: the seat entity, the desk bell's sound and redstone answers,
+and the bookcase's enchanting-table bonus (its hook is not dispatched at the
+SDK pin). Models are the upstream MIT assets, adapted to 26.3: the
+bookcase/shelf/seat models reference vanilla plank/wool textures, so the port
+ships no textures of its own.
 
 Usage:
     python3 tools/gen_content.py --upstream ../_shared/upstream/bibliocraft
@@ -180,7 +187,9 @@ def main() -> None:
     )
 
     # ------------------------------------------------------- item definitions
-    for name in ("oak_bookcase", "oak_shelf", "black_oak_seat", "desk_bell"):
+    # A block item per block, plus slice 2's `redstone_book` (upstream points it
+    # at vanilla's written-book model through the 26.3 `items/` definition).
+    for name in ("oak_bookcase", "oak_shelf", "black_oak_seat", "desk_bell", "redstone_book"):
         copy_file(
             generated / f"assets/bibliocraft/items/{name}.json",
             assets / f"items/{name}.json",
@@ -195,6 +204,10 @@ def main() -> None:
         "block.bibliocraft.oak_shelf",
         "block.bibliocraft.black_oak_seat",
         "block.bibliocraft.desk_bell",
+        "item.bibliocraft.redstone_book",
+        # The two content menus' titles (`BCMenuBlockEntity.defaultName`).
+        "container.bibliocraft.bookcase",
+        "container.bibliocraft.shelf",
         "itemGroup.bibliocraft",
     ]
     write(
@@ -274,6 +287,7 @@ def main() -> None:
         "oak_shelf": "wood/oak/shelf.json",
         "black_oak_seat": "color/black/wood/oak/seat.json",
         "desk_bell": "desk_bell.json",
+        "redstone_book": "redstone_book.json",
     }
     for name, relative in recipe_sources.items():
         recipe = json.loads(
@@ -327,11 +341,46 @@ def main() -> None:
         data / "minecraft/tags/block/mineable/pickaxe.json",
         {"values": ["bibliocraft:desk_bell"]},
     )
+    # Slice 2: what a bookcase keeps (`BCTags.Items.BOOKCASE_BOOKS`: every vanilla
+    # bookshelf book, the lectern books, and the mod's own redstone book). The
+    # jar's tag also lists optional foreign guide books; they are not in the
+    # registry, so they are not declared.
+    write(
+        data / "bibliocraft/tags/item/bookcase_books.json",
+        {
+            "values": [
+                "#minecraft:bookshelf_books",
+                "#minecraft:lectern_books",
+                "bibliocraft:redstone_book",
+            ]
+        },
+    )
+    write(
+        data / "minecraft/tags/item/bookshelf_books.json",
+        {"values": ["bibliocraft:redstone_book"]},
+    )
     # The seat recipe's wooden-rod ingredient, and the desk bell's iron and
     # redstone, in the 26.3 convention-tag form (the pack ships no `c` tags).
     write(data / "c/tags/item/rods/wooden.json", {"values": ["minecraft:stick"]})
     write(data / "c/tags/item/ingots/iron.json", {"values": ["minecraft:iron_ingot"]})
     write(data / "c/tags/item/dusts/redstone.json", {"values": ["minecraft:redstone"]})
+
+    # ------------------------------------------------------------- storage (slice 2)
+    # The two content menus and the one item declaration are 26.3 SDK content:
+    # `horizon/menu/` sizes the menu the block's container names, and
+    # `horizon/item/` declares a plain item (the redstone book: one per stack,
+    # glowing, on vanilla's book item).
+    write(data / "bibliocraft/horizon/menu/bookcase.json", {"slots": 16})
+    write(data / "bibliocraft/horizon/menu/shelf.json", {"slots": 4})
+    write(
+        data / "bibliocraft/horizon/item/redstone_book.json",
+        {
+            "template": "minecraft:book",
+            "max_stack_size": 1,
+            # `RedstoneBookItem.isFoil`: the book always glints.
+            "components": {"minecraft:enchantment_glint_override": True},
+        },
+    )
 
     # --------------------------------------------------------- creative tab
     write(
@@ -344,6 +393,7 @@ def main() -> None:
                 "bibliocraft:oak_shelf",
                 "bibliocraft:black_oak_seat",
                 "bibliocraft:desk_bell",
+                "bibliocraft:redstone_book",
             ],
         },
     )

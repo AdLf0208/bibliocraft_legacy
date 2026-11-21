@@ -1,61 +1,73 @@
-# Bibliocraft Legacy — a Horizon port
+# Bibliocraft Legacy — Horizon port (slices 1–2)
 
-**Bibliocraft Legacy** is a Minecraft mod. Bibliocraft Legacy is a port of the original BiblioCraft Minecraft mod by Nuchaz. It adds various pieces of decorative and functional furniture into the game. This repository is a **port of it to [Horizon](https://github.com/horizon-rust/horizon)**, the Rust engine for Minecraft Java 26.3. It carries the complete source of the port plus the content files it ships, and installs as a single `.hmod` package.
+A clean-room Rust/content port of **Bibliocraft Legacy 26.1.2-1.7.1**
+(`MinecraftschurliMods/Bibliocraft-Legacy`, MIT) for Minecraft 26.3 on
+Horizon's pinned SDK build `0a875da`.
 
-Upstream: [MinecraftschurliMods/Bibliocraft-Legacy](https://github.com/MinecraftschurliMods/Bibliocraft-Legacy) — licence **MIT**.
+Slice 1 is four furniture blocks with their states, shapes, items, self-drop
+loot, the upstream shaped recipes, tags and one `Bibliocraft` creative tab:
 
-| | |
-|---|---|
-| Upstream mod | Bibliocraft Legacy ([source](https://github.com/MinecraftschurliMods/Bibliocraft-Legacy)) |
-| Ported to | Horizon 0b14f8a, Minecraft Java 26.3, mod API `0.2` |
-| Package | `bibliocraft.hmod` (install it with the Horizon launcher) |
-| Licence | **MIT** — the upstream mod's licence; see [Licence and credit](#licence-and-credit) |
+- `bibliocraft:oak_bookcase` (8 states, six-box facing shape)
+- `bibliocraft:oak_shelf` (8 states, one-box wall shape)
+- `bibliocraft:black_oak_seat` (12 states, ten-box stool shape)
+- `bibliocraft:desk_bell` (2 states, eight-box shape)
 
-## What this port implements
+Slice 2 makes the two wood blocks real storage:
 
-The port's behaviour is recorded in the repository's `notes.md` (the campaign's per-mod record); this slice ships what that file describes.
+- the bookcase is a **16-slot, books-only** block entity with a content menu
+  (`bibliocraft:bookcase`); a `bibliocraft:redstone_book` in slot *n* makes a
+  comparator answer *n* (0–15), a plain book answers 0, and a broken bookcase
+  spills its books as any container does;
+- the shelf is a **4-slot** one (`bibliocraft:shelf`) that keeps anything;
+- `bibliocraft:redstone_book` is the comparator's trigger item (one per stack,
+  glinting, shapeless book + redstone torch).
 
-## Not yet ported
+Still deferred: the seat entity, the desk bell's ring and redstone answers, the
+table, the other wood types and seat colours, and the bookcase's
+enchanting-table bonus (its hook is not dispatched at this pin). See
+[`notes.md`](notes.md) and [`VALIDATION.md`](VALIDATION.md).
 
-- **Decorative, not functional.** The bookcase and shelf have no inventory,
-- **Table deferred.** Its collision depends on `type` *and* `facing`
-- **Waterlogged is a declared state, not fluid logic.** The state binds and
-- **Occlusion is the template's.** Upstream marks the bookcase, shelf, seat
-- **One wood type and one seat colour.** Slice 1 carries only `oak` and
-- **The seat carries an extra `axis` state.** The seat uses the `oak_log`
-- **Desk bell requires a pickaxe** (`requires_tool: true`, copied from
-- **No sounds, particles or animations** are carried. The desk bell's four
+## One flat SDK package (mod API 0.2)
 
-## Installing
-
-1. Install the [Horizon launcher](https://github.com/horizon-rust/horizon/releases) (0.2.70 or newer).
-2. Add `bibliocraft.hmod` to the instance's mods.
-3. The package is pinned to a specific Horizon build; the launcher checks that pin.
-
-## Licence and credit
-
-Bibliocraft Legacy was created by its upstream authors; the code, models and assets in the original mod
-remain theirs and are used here under **MIT**. The Rust in this repository is a clean-room
-rewrite for Horizon, not a translation of the original source.
-
-- `LICENSE` — the upstream licence text.
-- `LICENSE-NOTICE.md` — what this port carries and where it came from.
-- The upstream project: https://github.com/MinecraftschurliMods/Bibliocraft-Legacy
-
-## Technical details
-
-```
-horizon-mod.toml   package manifest (id, version, api, [native] pin)
-Cargo.toml         the crate; depends on `horizon-mod-api` from the fetched SDK
-src/               lib.rs (the one `impl Hooks`), runtime.rs (pure logic + tests), glue
-assets/ data/      the content the package ships
-tools/             content generators and the e2e scenario
+```text
+bibliocraft.hmod            # the deliverable: code + content in one file
+  horizon-mod.toml          # the only manifest: id, version, api, capabilities, [native] pins
+  Cargo.toml                # horizon-mod-api from .horizon/sdk/ (fetched, never packed)
+  src/lib.rs                # the one `impl mod_api::Hooks` (register, right_click_block, level_tick_post)
+  src/runtime.rs            # the pure rules — shapes, slots, the comparator signal — and their tests
+  src/support.rs            # the glue: the two block entities, their Parts, the menu, the comparator cache
+  assets/bibliocraft/       # blockstates, item definitions, models, lang
+  data/bibliocraft/         # block declarations, menus, items, loot, recipes, tags, creative tab
+  LICENSE, LICENSE-NOTICE.md
 ```
 
-- Build: `cargo horizon-mod build` (packages; it does not compile against the game).
-- Test: `cargo test`, `cargo clippy --all-targets -- -D warnings`.
-- In-game: `ports/tools/launcher-game.sh run bibliocraft` in the campaign tree, or install the
-  `.hmod` and play; the harness scenario is `tools/e2e.sh`.
+`assets/` and `data/` are the carried content; `tools/gen_content.py`
+regenerates them from an upstream checkout. `tools/craft_check.py` drives the
+five recipes in a real crafting table inside the e2e.
 
-This repository is generated from the campaign's port at `ports/bibliocraft/`; the port's own
-`notes.md` is the full record (decisions, traps, evidence).
+## Build and check
+
+```sh
+# the compile gate (host target, the SDK is a path dependency)
+CARGO_INCREMENTAL=0 cargo test
+CARGO_INCREMENTAL=0 cargo clippy --all-targets -- -D warnings
+cargo fmt --check                      # not --all: that formats the fetched SDK
+
+# the package (a lock changes the artifact, so remove it first)
+rm -f Cargo.lock && cargo horizon-mod build
+cp target/horizon-mod/bibliocraft.hmod ./bibliocraft.hmod
+cargo horizon-mod check bibliocraft.hmod
+cargo horizon-mod fits bibliocraft.hmod --build 0a875da
+cargo horizon-mod fits bibliocraft.hmod --build 0b14f8a     # a different build
+```
+
+The launcher is the only thing that compiles the native half for play
+(`ports/tools/launcher-game.sh build bibliocraft`); the in-game scenario is
+`tools/e2e.sh` with the `GAME`/`CTL`/`RES` that `launcher-game.sh env
+bibliocraft` prints.
+
+## Licence
+
+Upstream and this port are MIT. The port is **local-only until publishing is
+approved** (ARCHITECTURE.md §8); the carried models and lang are upstream
+assets.
